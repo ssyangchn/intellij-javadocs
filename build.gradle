@@ -1,0 +1,148 @@
+repositories {
+	mavenCentral()
+}
+
+apply plugin: 'java'
+
+group='com.github.setial.intellijjavadocs'
+
+def baseWorkingDir = "${projectDir.absolutePath}/${intellijIdeaBaseName}"
+def ideaDownloadUrl = "https://github.com/JetBrains/${intellijIdeaBaseName}/archive/idea/${intellijIdeaVersion}.zip"
+def ideaDownloadPath = "${baseWorkingDir}/${intellijIdeaBaseName}-${intellijIdeaVersion}.zip"
+def workingDir = "${baseWorkingDir}/${intellijIdeaBaseName}-idea-${intellijIdeaVersion}"
+def ideaArtifactsPath = "${workingDir}/out/dist.all.ce/lib"
+
+configurations {
+    packaged
+}
+
+sourceSets {
+    main {
+		compileClasspath += project.configurations.packaged
+	}
+	test {
+		compileClasspath += project.configurations.packaged
+	}
+}
+
+dependencies {
+	packaged 'commons-beanutils:commons-beanutils:1.8.+'
+	packaged 'commons-collections:commons-collections:3.2.+'
+	packaged 'org.apache.commons:commons-lang3:3.+'
+	packaged 'commons-logging:commons-logging:1.1.+'
+}
+
+task cleanFull << {
+	logger.info('************************')
+	logger.info('cleaning project')
+	logger.info('************************')
+	project.delete(baseWorkingDir)
+}
+
+task downloadIdea(type: Download) {
+	onlyIf {
+		!file(ideaDownloadPath).exists()
+	}
+
+	doFirst {
+		logger.info('************************')
+		logger.info('downloading community idea archive')
+		logger.info('************************')
+	}
+	
+	from ideaDownloadUrl
+	into file(ideaDownloadPath)
+}
+
+task prepareIdea(dependsOn: downloadIdea, type: Copy) {
+	onlyIf {
+		!file("${workingDir}/prepared").exists()
+	}
+
+	doFirst {
+		logger.info('************************')
+		logger.info('unzipping community idea archive')
+		logger.info('************************')
+	}
+	
+	from zipTree(ideaDownloadPath)
+	into baseWorkingDir
+
+	doLast {
+		file("${workingDir}/prepared").createNewFile()
+	}
+}
+
+task buildIdea(dependsOn: prepareIdea, type: JavaExec) {
+	onlyIf {
+		!file("${workingDir}/built").exists()
+	}
+
+	doFirst {
+		logger.info('************************')
+		logger.info('building community idea')
+		logger.info('************************')
+	}
+	
+	// all arguments are copied from ${workingDir}/build.xml
+	main = '-jar'
+
+	args "${workingDir}/lib/ant/lib/ant-launcher.jar"
+	args "-Dgant.script=${workingDir}/build/scripts/dist.gant"
+	args "-Dteamcity.build.tempDir=${workingDir}/out/tmp"
+	args "-Didea.test.group=ALL_EXCLUDE_DEFINED"
+	args "-f"
+	args "${workingDir}/build/gant.xml"
+
+	jvmArgs '-Xmx768m'
+	jvmArgs '-Xms512m'
+	jvmArgs '-XX:MaxPermSize=256m'
+
+	doLast {
+		file("${workingDir}/built").createNewFile()
+	}
+}
+
+compileJava.doFirst {
+	classpath += fileTree(dir: "${ideaArtifactsPath}", includes: ['*.jar'])
+}
+
+task preparePlugin(dependsOn: jar, type: Zip) {
+	doFirst {
+		logger.info('************************')
+		logger.info('preparing intellij-javadocs plugin')
+		logger.info('************************')
+	}
+
+	destinationDir = project.projectDir
+	from project.configurations.packaged
+	from jar.archivePath
+	into "${project.name}/lib"
+}
+
+clean.doLast {
+	project.delete(preparePlugin.archivePath)
+}
+
+compileJava.dependsOn buildIdea
+build.dependsOn preparePlugin
+
+// task to download idea archive
+class Download extends DefaultTask {
+
+	@Input
+	String from
+
+	@OutputFile
+	File into
+	
+	@TaskAction
+	void download() {
+		into.mkDirs()
+		new URL(from).withInputStream {
+			i -> into.withOutputStream {
+				it << i
+			}
+		}
+	}
+}
