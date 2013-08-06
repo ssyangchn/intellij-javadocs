@@ -6,12 +6,6 @@ apply plugin: 'java'
 
 group='com.github.setial.intellijjavadocs'
 
-def baseWorkingDir = "${projectDir.absolutePath}/${intellijIdeaBaseName}"
-def ideaDownloadUrl = "https://github.com/JetBrains/${intellijIdeaBaseName}/archive/idea/${intellijIdeaVersion}.zip"
-def ideaDownloadPath = "${baseWorkingDir}/${intellijIdeaBaseName}-${intellijIdeaVersion}.zip"
-def workingDir = "${baseWorkingDir}/${intellijIdeaBaseName}-idea-${intellijIdeaVersion}"
-def ideaArtifactsPath = "${workingDir}/out/dist.all.ce/lib"
-
 configurations {
     packaged
 }
@@ -32,14 +26,28 @@ dependencies {
 	packaged 'commons-logging:commons-logging:1.1.+'
 }
 
-task cleanFull << {
-	logger.info('************************')
-	logger.info('cleaning project')
-	logger.info('************************')
-	project.delete(baseWorkingDir)
+def baseWorkingDir = "${projectDir.absolutePath}/${intellijIdeaBaseName}"
+def ideaDownloadUrl = "https://github.com/JetBrains/${intellijIdeaBaseName}/archive/idea/${intellijIdeaVersion}.zip"
+def ideaDownloadPath = "${baseWorkingDir}/${intellijIdeaBaseName}-${intellijIdeaVersion}.zip"
+def workingDir = "${baseWorkingDir}/${intellijIdeaBaseName}-idea-${intellijIdeaVersion}"
+def ideaArtifactsPath = "${workingDir}/out/dist.all.ce/lib"
+
+task cleanFull(dependsOn: clean, type:Delete) {
+	doFirst {
+		logger.info('************************')
+		logger.info('cleaning project')
+		logger.info('************************')
+	}
+	delete baseWorkingDir
 }
 
-task downloadIdea(type: Download) {
+task init {
+	doFirst {
+		project.file(baseWorkingDir).mkdir()
+	}
+}
+
+task downloadIdea(dependsOn: init, type: Download) {
 	onlyIf {
 		!file(ideaDownloadPath).exists()
 	}
@@ -127,7 +135,6 @@ clean.doLast {
 compileJava.dependsOn buildIdea
 build.dependsOn preparePlugin
 
-// task to download idea archive
 class Download extends DefaultTask {
 
 	@Input
@@ -138,10 +145,11 @@ class Download extends DefaultTask {
 	
 	@TaskAction
 	void download() {
-		into.mkDirs()
-		new URL(from).withInputStream {
-			i -> into.withOutputStream {
-				it << i
+		new URL(from).withInputStream { is ->
+			def bis = new BufferedInputStream(is)
+			into.withOutputStream { os ->
+				def bos = new BufferedOutputStream(os)
+				bos << bis
 			}
 		}
 	}
